@@ -11,6 +11,12 @@
 	rationale: macroing keywords if necessary in future
 */
 
+#if defined(KERNEL_MITIGATION_ERRNO)
+#if KERNEL_MITIGATION_ERRNO == 0
+#warning "KERNEL_MITIGATION_ERRNO == 0"
+#endif
+#endif
+
 #define LONG_MAX 0x7fffFFFFffffFFFF
 #define ULONG_MAX 0xffffFFFFffffFFFF
 #define INT_MAX 0x7fFFffFF
@@ -37,13 +43,18 @@
 #define STRINGIZE(x) #x
 #define STRINGIZE_VALUE(x) STRINGIZE(x)
 
+#define LIKELY(x)                                                              \
+	(0x1 == __builtin_expect_with_probability((x) ? 1 : 0, 1, 0.9))
+#define UNLIKELY(x)                                                            \
+	(1 == __builtin_expect_with_probability((x) ? 1 : 0, 0, 0.9))
+
 #define assert(x)                                                              \
 	do {                                                                   \
-		if (!(x)) {                                                    \
+		if (UNLIKELY(!(x))) {                                          \
 			if (NDEBUG_FLAG) {                                     \
 				__builtin_unreachable();                       \
 			} else {                                               \
-				(void)sys_write(                               \
+				(void)bulk_write(                              \
 				    NULL, STDERR_FILENO,                       \
 				    "\nAssertion failed! Expression \"" #x     \
 				    "\" file \"" __FILE__                      \
@@ -53,9 +64,21 @@
 					"\" file \"" __FILE__                  \
 					"\" line " STRINGIZE_VALUE(            \
 					    __LINE__) "\n"));                  \
+				assert_cleanup();                              \
+				sys_exit(EXIT_FAILURE);                        \
 			}                                                      \
 		}                                                              \
 	} while (0 == 1)
+
+static void stream_store_i32(int *dst, int src)
+{
+	__builtin_ia32_movnti(dst, src);
+}
+
+static void stream_store_i64(void *dst, long src)
+{
+	__builtin_ia32_movnti64(dst, src);
+}
 
 /* https://github.com/kraj/musl/blob/kraj/master/arch/x86_64/syscall_arch.h */
 static long syscall0(unsigned long n)
@@ -237,6 +260,10 @@ static long syscall6(unsigned long n, unsigned long a1, unsigned long a2,
 #define SYS_UNLINKAT 0x107
 #define SYS_UMASK 0x5f
 
+#define EOF (-1)
+
+#define EINTR 0x4
+
 static unsigned long priv_strlen(const char *s)
 {
 	unsigned long result;
@@ -249,20 +276,129 @@ static unsigned long priv_strlen(const char *s)
 	return result;
 }
 
-static int sys_write(long *restrict result, int fd, const void *restrict data,
-		     unsigned long nbytes)
+static void assert_cleanup()
 {
-	long rax;
+	/* cleanup before exit */
+}
+
+static void sys_exit(int status)
+{
+	(void)syscall1(SYS_EXIT, (long)status);
+}
+
+static int sys_write(long *restrict result, int fd, const void *restrict data,
+		     unsigned long nbytes);
+
+static int sys_read(long *restrict result, int fd, void *restrict buf,
+		    unsigned long nbytes);
+
+static int bulk_write(long *restrict result, int fd, const void *restrict data,
+		      unsigned long nbytes)
+{
+	long res;
+	long nbytes_succeeded;
+	int err;
+	char *curr_data;
 
 	assert(nbytes != 0);
 	assert(data != NULL);
 	assert(fd >= 0);
 
+	nbytes_succeeded = 0;
+	curr_data = (char *)data;
+
+	while (1 == 1) {
+		err = sys_write(&res, fd, curr_data, nbytes);
+		if (UNLIKELY(err != 0)) {
+			if (LIKELY(-err == EINTR)) {
+				continue;
+			} else {
+				break;
+			}
+		} else {
+#if defined(KERNEL_MITIGATION_ERRNO)
+			if (UNLIKELY(res < 0 || res > nbytes)) {
+				err = KERNEL_MITIGATION_ERRNO;
+				break;
+			}
+#else
+			assert(res >= 0 && res <= nbytes);
+#endif
+			if (LIKELY(res == nbytes)) {
+				break;
+			}
+			curr_data += res;
+			nbytes_succeeded += res;
+			nbytes -= res;
+		}
+	}
+
+	if (UNLIKELY(result != NULL)) {
+		*result = nbytes_succeeded;
+	}
+	return err;
+}
+
+static int bulk_read(long *restrict result, int fd, void *restrict buf,
+		     unsigned long nbytes)
+{
+	long res;
+	long nbytes_succeeded;
+	int err;
+	char *curr_buf;
+
+	assert(nbytes != 0);
+	assert(buf != NULL);
+	assert(fd >= 0);
+
+	nbytes_succeeded = 0;
+	curr_buf = (char *)buf;
+
+	while (1 == 1) {
+		err = sys_read(&res, fd, curr_buf, nbytes);
+		if (UNLIKELY(err != 0)) {
+			if (LIKELY(-err == EINTR)) {
+				continue;
+			} else {
+				break;
+			}
+		} else {
+#if defined(KERNEL_MITIGATION_ERRNO)
+			if (UNLIKELY(res < 0 || res > nbytes)) {
+				err = KERNEL_MITIGATION_ERRNO;
+				break;
+			}
+#else
+			assert(res >= 0 && res <= nbytes);
+#endif
+			if (LIKELY(res == nbytes)) {
+				break;
+			}
+			curr_buf += res;
+			nbytes_succeeded += res;
+			nbytes -= res;
+		}
+	}
+
+	if (UNLIKELY(result != NULL)) {
+		*result = nbytes_succeeded;
+	}
+	return err;
+}
+
+static int sys_write(long *restrict result, int fd, const void *restrict data,
+		     unsigned long nbytes)
+{
+	long rax;
+
+	assert(data != NULL);
+	assert(fd >= 0);
+
 	rax =
 	    syscall3(SYS_WRITE, (unsigned long)fd, (unsigned long)data, nbytes);
-	if (rax < 0 && rax > -0x1000) {
+	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
 		return (int)rax;
-	} else if (result != NULL) {
+	} else if (LIKELY(result != NULL)) {
 		*result = rax;
 	}
 	return 0;
@@ -274,13 +410,12 @@ static int sys_read(long *restrict result, int fd, void *restrict buf,
 	long rax;
 
 	assert(buf != NULL);
-	assert(nbytes != 0);
 	assert(fd >= 0);
 
 	rax = syscall3(SYS_READ, (unsigned long)fd, (unsigned long)buf, nbytes);
-	if (rax < 0 && rax > -0x1000) {
+	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
 		return (int)rax;
-	} else if (result != NULL) {
+	} else if (LIKELY(result != NULL)) {
 		*result = rax;
 	}
 	return 0;
@@ -291,9 +426,29 @@ static void sys_sync(void)
 	(void)syscall0(SYS_SYNC);
 }
 
-static void sys_exit(int status)
+static float sinf(float x)
 {
-	(void)syscall1(SYS_EXIT, (long)status);
+	float result;
+	float a;
+	int sign;
+	unsigned long b;
+	unsigned int i;
+
+	assert(x == x);
+
+	a = x;
+	b = 1;
+	sign = 1;
+	result = 0;
+
+	for (i = 0; i < 8; i += 2) {
+		result += a / b * sign;
+		a *= x * x;
+		b *= (i + 2) * (i + 3);
+		sign = -sign;
+	}
+
+	return result;
 }
 
 static void memcpy(void *restrict dst, const void *restrict src,
@@ -338,27 +493,31 @@ int main(int argc, char **argv)
 	int err;
 	char buf[64];
 
+#if defined(KERNEL_MITIGATION_ERRNO)
+	assert(0 != strlen(STRINGIZE_VALUE(KERNEL_MITIGATION_ERRNO)));
+#endif
+
 	assert(sizeof buf >= 3 + 1 + 2 + strlen(STR_HERE_ARE_CHARACTERS));
 
 	memcpy(buf, "\n" STR_HERE_ARE_CHARACTERS " ???\n",
 	       3 + 1 + 2 + strlen(STR_HERE_ARE_CHARACTERS));
 
-	err = sys_write(NULL, STDOUT_FILENO, "\n" STR_ENTER_CHARACTERS "\n",
-			2 + strlen(STR_ENTER_CHARACTERS));
-	if (err != 0) {
-		(void)sys_write(NULL, STDERR_FILENO, "\nError\n", 7);
+	err = bulk_write(NULL, STDOUT_FILENO, "\n" STR_ENTER_CHARACTERS "\n",
+			 2 + strlen(STR_ENTER_CHARACTERS));
+	if (UNLIKELY(err != 0)) {
+		(void)bulk_write(NULL, STDERR_FILENO, "\nError\n", 7);
 		return EXIT_FAILURE;
 	}
-	err = sys_read(NULL, STDIN_FILENO,
-		       buf + 1 + strlen(STR_HERE_ARE_CHARACTERS) + 1, 3);
-	if (err != 0) {
-		(void)sys_write(NULL, STDERR_FILENO, "\nError\n", 7);
+	err = bulk_read(NULL, STDIN_FILENO,
+			buf + 1 + strlen(STR_HERE_ARE_CHARACTERS) + 1, 3);
+	if (UNLIKELY(err != 0)) {
+		(void)bulk_write(NULL, STDERR_FILENO, "\nError\n", 7);
 		return EXIT_FAILURE;
 	}
-	err = sys_write(NULL, STDOUT_FILENO, buf,
-			3 + 1 + 2 + strlen(STR_HERE_ARE_CHARACTERS));
-	if (err != 0) {
-		(void)sys_write(NULL, STDERR_FILENO, "\nError\n", 7);
+	err = bulk_write(NULL, STDOUT_FILENO, buf,
+			 3 + 1 + 2 + strlen(STR_HERE_ARE_CHARACTERS));
+	if (UNLIKELY(err != 0)) {
+		(void)bulk_write(NULL, STDERR_FILENO, "\nError\n", 7);
 		return EXIT_FAILURE;
 	}
 	return EXIT_SUCCESS;
