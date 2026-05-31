@@ -318,7 +318,7 @@ static int bulk_write(long *restrict result, int fd, const void *restrict data,
 		} else {
 #if defined(KERNEL_MITIGATION_ERRNO)
 			if (UNLIKELY(res < 0 || res > nbytes)) {
-				err = KERNEL_MITIGATION_ERRNO;
+				err = -KERNEL_MITIGATION_ERRNO;
 				break;
 			}
 #else
@@ -365,7 +365,7 @@ static int bulk_read(long *restrict result, int fd, void *restrict buf,
 		} else {
 #if defined(KERNEL_MITIGATION_ERRNO)
 			if (UNLIKELY(res < 0 || res > nbytes)) {
-				err = KERNEL_MITIGATION_ERRNO;
+				err = -KERNEL_MITIGATION_ERRNO;
 				break;
 			}
 #else
