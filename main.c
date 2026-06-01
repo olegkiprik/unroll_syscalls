@@ -894,10 +894,11 @@ static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 {
 	long rax;
 	unsigned long offset_ul;
+	unsigned long fd_ul;
 
 	ASSERT(prot >= 0);
 	ASSERT(flags >= 0);
-	ASSERT(fd >= 0);
+	ASSERT(fd >= 0 || fd == -1);
 	ASSERT(prot <= INT_MAX);
 	ASSERT(flags <= INT_MAX);
 	ASSERT(fd <= INT_MAX);
@@ -910,10 +911,16 @@ static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 		offset_ul = (unsigned long)offset;
 	}
 
+	if (fd == -1) {
+		fd_ul = ULONG_MAX;
+	} else {
+		fd_ul = (unsigned long)fd;
+	}
+
 	/* 'offset' is changed */
 
 	rax = syscall6((unsigned long)addr, length, (unsigned long)(long)prot,
-		       (unsigned long)(long)flags, (unsigned long)(long)fd,
+		       (unsigned long)(long)flags, fd_ul,
 		       offset_ul, SYS_MMAP);
 	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
 		return rax;
