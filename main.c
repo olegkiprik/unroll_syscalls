@@ -119,72 +119,78 @@
    https://github.com/kraj/musl/blob/kraj/master/arch/x86_64/syscall_arch.h */
 static long syscall0(unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	asm volatile("syscall" : "=a"(ret) : "a"(n) : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall1(unsigned long a1, unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	asm volatile("syscall"
 		     : "=a"(ret)
 		     : "a"(n), "D"(a1)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall2(unsigned long a1, unsigned long a2, unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	asm volatile("syscall"
 		     : "=a"(ret)
 		     : "a"(n), "D"(a1), "S"(a2)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall3(unsigned long a1, unsigned long a2, unsigned long a3,
 		     unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	asm volatile("syscall"
 		     : "=a"(ret)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall4(unsigned long a1, unsigned long a2, unsigned long a3,
 		     unsigned long a4, unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	asm volatile("syscall"
 		     : "=a"(ret)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall5(unsigned long a1, unsigned long a2, unsigned long a3,
 		     unsigned long a4, unsigned long a5, unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	register unsigned long r8 asm("r8") = a5;
 	asm volatile("syscall"
 		     : "=a"(ret)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 static long syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 		     unsigned long a4, unsigned long a5, unsigned long a6,
 		     unsigned long n)
 {
-	long ret;
+	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	register unsigned long r8 asm("r8") = a5;
 	register unsigned long r9 asm("r9") = a6;
@@ -193,7 +199,8 @@ static long syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8),
 		       "r"(r9)
 		     : "rcx", "r11", "memory");
-	return ret;
+	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
+			      : (long)ret;
 }
 
 /* io */
@@ -920,8 +927,7 @@ static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 	/* 'offset' is changed */
 
 	rax = syscall6((unsigned long)addr, length, (unsigned long)(long)prot,
-		       (unsigned long)(long)flags, fd_ul,
-		       offset_ul, SYS_MMAP);
+		       (unsigned long)(long)flags, fd_ul, offset_ul, SYS_MMAP);
 	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
 		return rax;
 	}
