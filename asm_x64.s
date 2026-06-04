@@ -6,19 +6,17 @@ https://gist.github.com/tcoppex/443d1dd45f873d96260195d6431b0989
 
 */
 
-.intel_syntax noprefix
-
 .text
 	.globl _start
 
 	_start:
-		xor rbp, rbp
-		pop rdi
-		mov rsi, rsp
-		and rsp, 0xffffFFFFffffFFf0
+		xor %rbp, %rbp
+		pop %rdi
+		mov %rsp, %rsi
+		and $0xffffFFFFffffFFf0, %rsp
 		call main
 		
-		mov rdi, rax
-		mov rax, 60
+		mov %rax, %rdi
+		mov $60, %rax
 		syscall
 
