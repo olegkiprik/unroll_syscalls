@@ -19,6 +19,8 @@
 
 /* sys_calls: check < 0 for errors */
 
+#define asm __asm__
+
 #if defined(KERNEL_MITIGATION_ERRNO)
 #if KERNEL_MITIGATION_ERRNO == 0
 #error "KERNEL_MITIGATION_ERRNO == 0"
@@ -115,92 +117,79 @@
 		}                                                              \
 	} while (0 == 1)
 
+typedef union unn_syscall_result_ {
+	long l;
+	unsigned long ul;
+	void *p;
+} unn_syscall_result;
+
 /* borrowed from musl.
    https://github.com/kraj/musl/blob/kraj/master/arch/x86_64/syscall_arch.h */
-static long syscall0(unsigned long n)
+static void syscall0(unsigned long n, unn_syscall_result *res)
 {
-	unsigned long ret;
-	asm volatile("syscall" : "=a"(ret) : "a"(n) : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
+	asm volatile("syscall" : "=a"(*res) : "a"(n) : "rcx", "r11", "memory");
 }
 
-static long syscall1(unsigned long a1, unsigned long n)
+static void syscall1(unsigned long a1, unsigned long n, unn_syscall_result *res)
 {
-	unsigned long ret;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
-static long syscall2(unsigned long a1, unsigned long a2, unsigned long n)
+static void syscall2(unsigned long a1, unsigned long a2, unsigned long n,
+		     unn_syscall_result *res)
 {
-	unsigned long ret;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1), "S"(a2)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
-static long syscall3(unsigned long a1, unsigned long a2, unsigned long a3,
-		     unsigned long n)
+static void syscall3(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long n, unn_syscall_result *res)
 {
-	unsigned long ret;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
-static long syscall4(unsigned long a1, unsigned long a2, unsigned long a3,
-		     unsigned long a4, unsigned long n)
+static void syscall4(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long n, unn_syscall_result *res)
 {
-	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
-static long syscall5(unsigned long a1, unsigned long a2, unsigned long a3,
-		     unsigned long a4, unsigned long a5, unsigned long n)
+static void syscall5(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long a5, unsigned long n,
+		     unn_syscall_result *res)
 {
-	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	register unsigned long r8 asm("r8") = a5;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
-static long syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
+static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 		     unsigned long a4, unsigned long a5, unsigned long a6,
-		     unsigned long n)
+		     unsigned long n, unn_syscall_result *res)
 {
-	unsigned long ret;
 	register unsigned long r10 asm("r10") = a4;
 	register unsigned long r8 asm("r8") = a5;
 	register unsigned long r9 asm("r9") = a6;
 	asm volatile("syscall"
-		     : "=a"(ret)
+		     : "=a"(*res)
 		     : "a"(n), "D"(a1), "S"(a2), "d"(a3), "r"(r10), "r"(r8),
 		       "r"(r9)
 		     : "rcx", "r11", "memory");
-	return ret > LONG_MAX ? (long)(ret - LONG_MAX - 1) - LONG_MAX - 1
-			      : (long)ret;
 }
 
 /* io */
@@ -419,7 +408,9 @@ static void assert_cleanup(void)
 static void sys_exit(int status)
 {
 	/* too long assembly because of 'int' */
-	(void)syscall1((long)status, SYS_EXIT);
+	unn_syscall_result rax;
+	syscall1((long)status, SYS_EXIT, &rax);
+	(void)rax;
 }
 
 static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
@@ -489,7 +480,7 @@ static void memcpy(void *restrict dst, const void *restrict src,
 static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 		      long *restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(data != NULL);
 	ASSERT(fd >= 0);
@@ -499,10 +490,10 @@ static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 	ASSERT(fd != STDIN_FILENO);
 #endif
 
-	rax = syscall3((unsigned long)(long)fd, (unsigned long)data, nbytes,
-		       SYS_WRITE);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3((unsigned long)(long)fd, (unsigned long)data, nbytes,
+		 SYS_WRITE, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l - 0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -511,19 +502,19 @@ static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 	}
 #endif
 
-	ASSERT(rax >= 0);
-	ASSERT((unsigned long)rax <= nbytes);
+	ASSERT(rax.l >= 0);
+	ASSERT((unsigned long)rax.l <= nbytes);
 
 	if (LIKELY(result != NULL)) {
-		*result = rax;
+		*result = rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_read(long fd, void *restrict buf, unsigned long nbytes,
 		     long *restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(buf != NULL);
 	ASSERT(fd >= 0);
@@ -534,10 +525,10 @@ static long sys_read(long fd, void *restrict buf, unsigned long nbytes,
 	ASSERT(fd != STDERR_FILENO);
 #endif
 
-	rax = syscall3((unsigned long)(long)fd, (unsigned long)buf, nbytes,
-		       SYS_READ);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3((unsigned long)(long)fd, (unsigned long)buf, nbytes, SYS_READ,
+		 &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -546,13 +537,13 @@ static long sys_read(long fd, void *restrict buf, unsigned long nbytes,
 	}
 #endif
 
-	ASSERT(rax >= 0);
-	ASSERT((unsigned long)rax <= nbytes);
+	ASSERT(rax.l >= 0);
+	ASSERT((unsigned long)rax.l <= nbytes);
 
 	if (LIKELY(result != NULL)) {
-		*result = rax;
+		*result = rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long read_no_eintr(long fd, void *restrict buf, unsigned long nbytes,
@@ -597,22 +588,24 @@ static long read_no_eintr(long fd, void *restrict buf, unsigned long nbytes,
 
 static void sys_sync(void)
 {
-	(void)syscall0(SYS_SYNC);
+	unn_syscall_result rax;
+	(void)syscall0(SYS_SYNC, &rax);
+	(void)rax;
 }
 
 static long sys_lseek(long fd, long offset, long whence, long *result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(fd >= 0);
 	ASSERT(whence >= 0);
 	ASSERT(fd <= INT_MAX);
 	ASSERT(whence <= INT_MAX);
 
-	rax = syscall3((unsigned long)fd, (unsigned long)offset,
-		       (unsigned long)whence, SYS_LSEEK);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3((unsigned long)fd, (unsigned long)offset,
+		 (unsigned long)whence, SYS_LSEEK, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -621,26 +614,26 @@ static long sys_lseek(long fd, long offset, long whence, long *result)
 	}
 #endif
 
-	ASSERT(rax >= 0);
+	ASSERT(rax.l >= 0);
 	if (UNLIKELY(result != NULL)) {
-		*result = rax;
+		*result = rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_clone3(void *restrict args, unsigned long size,
 		       int *restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(args != NULL);
 	if (args != NULL) {
 		ASSUME_ALIGNED_DEREF(&args, sizeof(long));
 	}
 
-	rax = syscall2((unsigned long)args, size, SYS_CLONE3);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall2((unsigned long)args, size, SYS_CLONE3, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -649,13 +642,13 @@ static long sys_clone3(void *restrict args, unsigned long size,
 	}
 #endif
 
-	ASSERT(rax >= 0);
-	ASSERT(rax <= INT_MAX);
+	ASSERT(rax.l >= 0);
+	ASSERT(rax.l <= INT_MAX);
 
 	if (LIKELY(result != NULL)) {
-		*result = (int)rax;
+		*result = (int)rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_clone3_verbose(unsigned long flags, void *restrict pidfd,
@@ -722,7 +715,7 @@ static long sys_openat_uint(long dirfd, const void *restrict pathname,
 			    long flags, unsigned long mode,
 			    int *restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 	unsigned long dirfd_ul;
 
 	ASSERT(result != NULL);
@@ -740,11 +733,10 @@ static long sys_openat_uint(long dirfd, const void *restrict pathname,
 		dirfd_ul = (unsigned long)dirfd;
 	}
 
-	rax = syscall4(dirfd_ul, (unsigned long)pathname,
-		       (unsigned long)(long)flags, (unsigned long)mode,
-		       SYS_OPENAT);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall4(dirfd_ul, (unsigned long)pathname, (unsigned long)(long)flags,
+		 (unsigned long)mode, SYS_OPENAT, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -759,24 +751,24 @@ static long sys_openat_uint(long dirfd, const void *restrict pathname,
 #endif
 #endif /* KERNEL_MITIGATION_ERRNO */
 
-	ASSERT(rax <= INT_MAX);
-	ASSERT(rax > -0x1000);
+	ASSERT(rax.l <= INT_MAX);
+	ASSERT(rax.l > -0x1000);
 #if defined(STDIO_DESCRIPTOR_NO_HACKING)
-	ASSERT(rax != STDOUT_FILENO);
-	ASSERT(rax != STDERR_FILENO);
-	ASSERT(rax != STDIN_FILENO);
+	ASSERT(rax.l != STDOUT_FILENO);
+	ASSERT(rax.l != STDERR_FILENO);
+	ASSERT(rax.l != STDIN_FILENO);
 #endif
 
 	if (LIKELY(result != NULL)) {
-		*result = (int)rax;
+		*result = (int)rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_openat(long dirfd, const void *restrict pathname, long flags,
 		       int *restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 	unsigned long dirfd_ul;
 
 	ASSERT(result != NULL);
@@ -793,10 +785,10 @@ static long sys_openat(long dirfd, const void *restrict pathname, long flags,
 		dirfd_ul = (unsigned long)dirfd;
 	}
 
-	rax = syscall3(dirfd_ul, (unsigned long)pathname,
-		       (unsigned long)(long)flags, SYS_OPENAT);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3(dirfd_ul, (unsigned long)pathname, (unsigned long)(long)flags,
+		 SYS_OPENAT, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -811,23 +803,23 @@ static long sys_openat(long dirfd, const void *restrict pathname, long flags,
 #endif
 #endif /* KERNEL_MITIGATION_ERRNO */
 
-	ASSERT(rax <= INT_MAX);
-	ASSERT(rax > -0x1000);
+	ASSERT(rax.l <= INT_MAX);
+	ASSERT(rax.l > -0x1000);
 #if defined(STDIO_DESCRIPTOR_NO_HACKING)
-	ASSERT(rax != STDOUT_FILENO);
-	ASSERT(rax != STDERR_FILENO);
-	ASSERT(rax != STDIN_FILENO);
+	ASSERT(rax.l != STDOUT_FILENO);
+	ASSERT(rax.l != STDERR_FILENO);
+	ASSERT(rax.l != STDIN_FILENO);
 #endif
 
 	if (LIKELY(result != NULL)) {
-		*result = (int)rax;
+		*result = (int)rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_close(long fd)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(fd >= 0);
 	ASSERT(fd <= INT_MAX);
@@ -837,69 +829,69 @@ static long sys_close(long fd)
 	ASSERT(fd != STDERR_FILENO);
 #endif
 
-	rax = syscall1((unsigned long)(long)fd, SYS_CLOSE);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall1((unsigned long)(long)fd, SYS_CLOSE, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_fsync(long fd)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(fd >= 0);
 	ASSERT(fd <= INT_MAX);
 
-	rax = syscall1((unsigned long)(long)fd, SYS_FSYNC);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall1((unsigned long)(long)fd, SYS_FSYNC, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_fdatasync(long fd)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(fd >= 0);
 	ASSERT(fd <= INT_MAX);
 
-	rax = syscall1((unsigned long)(long)fd, SYS_FDATASYNC);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall1((unsigned long)(long)fd, SYS_FDATASYNC, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 		     long flags, long fd, long offset, void **restrict result)
 {
-	long rax;
+	unn_syscall_result rax;
 	unsigned long offset_ul;
 	unsigned long fd_ul;
 
@@ -926,34 +918,34 @@ static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 
 	/* 'offset' is changed */
 
-	rax = syscall6((unsigned long)addr, length, (unsigned long)(long)prot,
-		       (unsigned long)(long)flags, fd_ul, offset_ul, SYS_MMAP);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall6((unsigned long)addr, length, (unsigned long)(long)prot,
+		 (unsigned long)(long)flags, fd_ul, offset_ul, SYS_MMAP, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax < 0)) {
+	if (UNLIKELY(rax.l < 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax >= 0);
+	ASSERT(rax.l >= 0);
 
 	if (LIKELY(result != NULL)) {
-		*result = (void *)(unsigned long)rax;
+		*result = rax.p;
 	}
 
-	return rax;
+	return rax.l;
 }
 
 static long sys_munmap(void *addr, unsigned long length)
 {
-	long rax;
+	unn_syscall_result rax;
 
-	rax = syscall2((unsigned long)addr, length, SYS_MUNMAP);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall2((unsigned long)addr, length, SYS_MUNMAP, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -962,23 +954,23 @@ static long sys_munmap(void *addr, unsigned long length)
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_madvise(void *addr, unsigned long length, long advice)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(addr != NULL);
 	ASSERT(length != 0);
 	ASSERT(advice >= 0);
 	ASSERT(advice <= INT_MAX);
 
-	rax = syscall3((unsigned long)addr, length, (unsigned long)(long)advice,
-		       SYS_MADVISE);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3((unsigned long)addr, length, (unsigned long)(long)advice,
+		 SYS_MADVISE, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -987,21 +979,21 @@ static long sys_madvise(void *addr, unsigned long length, long advice)
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_mlockall(long flags)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(flags >= 0);
 	ASSERT(0 != (flags & MCL_CURRENT) || 0 != (flags & MCL_FUTURE));
 	ASSERT(flags <= INT_MAX);
 
-	rax = syscall1((unsigned long)(long)flags, SYS_MLOCKALL);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall1((unsigned long)(long)flags, SYS_MLOCKALL, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -1010,40 +1002,40 @@ static long sys_mlockall(long flags)
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_munlockall(void)
 {
-	long rax;
+	unn_syscall_result rax;
 
-	rax = syscall0(SYS_MUNLOCKALL);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall0(SYS_MUNLOCKALL, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_msync(void *addr, unsigned long length, long flags)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(flags >= 0);
 	ASSERT(flags <= INT_MAX);
 
-	rax = syscall3((unsigned long)addr, length, (unsigned long)(long)flags,
-		       SYS_MSYNC);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall3((unsigned long)addr, length, (unsigned long)(long)flags,
+		 SYS_MSYNC, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -1052,13 +1044,13 @@ static long sys_msync(void *addr, unsigned long length, long flags)
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_kill(long pid, long sig)
 {
-	long rax;
+	unn_syscall_result rax;
 	long pid_l;
 	unsigned long pid_ul;
 
@@ -1075,25 +1067,25 @@ static long sys_kill(long pid, long sig)
 		pid_ul = (unsigned long)(long)pid;
 	}
 
-	rax = syscall2(pid_ul, (unsigned long)(long)sig, SYS_KILL);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall2(pid_ul, (unsigned long)(long)sig, SYS_KILL, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_rt_sigaction(long signum, const void *restrict act,
 			     void *restrict oldact, unsigned long sigsetsize)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(signum > 0);
 	ASSERT(signum != SIGKILL);
@@ -1107,20 +1099,20 @@ static long sys_rt_sigaction(long signum, const void *restrict act,
 		ASSUME_ALIGNED_DEREF(&act, sizeof(long));
 	}
 
-	rax = syscall4((unsigned long)(long)signum, (unsigned long)act,
-		       (unsigned long)oldact, sigsetsize, SYS_RT_SIGACTION);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall4((unsigned long)(long)signum, (unsigned long)act,
+		 (unsigned long)oldact, sigsetsize, SYS_RT_SIGACTION, &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 #if 0 == 1
@@ -1208,7 +1200,7 @@ static long sys_rt_sigaction_verbose(
 
 static long sys_nanosleep(const void *restrict duration, void *restrict rem)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(duration != NULL);
 	if (duration != NULL) {
@@ -1218,20 +1210,20 @@ static long sys_nanosleep(const void *restrict duration, void *restrict rem)
 		ASSUME_ALIGNED_DEREF(&rem, sizeof(long));
 	}
 
-	rax = syscall2((unsigned long)duration, (unsigned long)rem,
-		       SYS_NANOSLEEP);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall2((unsigned long)duration, (unsigned long)rem, SYS_NANOSLEEP,
+		 &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax; /* clang-llvm does not realize 'rax' can be returned */
+	ASSERT(rax.l == 0);
+	return rax.l; /* clang-llvm does not realize 'rax' can be returned */
 }
 
 static long sys_nanosleep_verbose(long duration_tv_sec, long duration_tv_nsec)
@@ -1366,7 +1358,7 @@ static long nanosleep_no_eintr(long tv_sec, long tv_nsec)
 
 static long sys_clock_gettime(long clockid, void *tp)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(clockid >= -INT_MAX - 1);
 	ASSERT(clockid <= INT_MAX);
@@ -1377,20 +1369,20 @@ static long sys_clock_gettime(long clockid, void *tp)
 		ASSUME_ALIGNED_DEREF(&tp, sizeof(long));
 	}
 
-	rax = syscall2((unsigned long)clockid, (unsigned long)tp,
-		       SYS_CLOCK_GETTIME);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall2((unsigned long)clockid, (unsigned long)tp, SYS_CLOCK_GETTIME,
+		 &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (UNLIKELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax == 0);
-	return rax;
+	ASSERT(rax.l == 0);
+	return rax.l;
 }
 
 static long sys_clock_gettime_verbose(long clockid, long *restrict tp_tv_sec,
@@ -1423,29 +1415,29 @@ static long sys_clock_gettime_verbose(long clockid, long *restrict tp_tv_sec,
 
 static void sys_getpid(int *result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(result != NULL);
 
-	rax = syscall0(SYS_GETPID);
+	syscall0(SYS_GETPID, &rax);
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax < 0 || rax > INT_MAX)) {
+	if (UNLIKELY(rax.l < 0 || rax.l > INT_MAX)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
-	ASSERT(rax >= 0);
-	ASSERT(rax <= INT_MAX);
+	ASSERT(rax.l >= 0);
+	ASSERT(rax.l <= INT_MAX);
 	if (LIKELY(result != NULL)) {
-		*result = (int)rax;
+		*result = (int)rax.l;
 	}
 }
 
 static long sys_wait4(long pid, void *restrict wstatus, long options,
 		      void *restrict rusage, int *result)
 {
-	long rax;
+	unn_syscall_result rax;
 
 	ASSERT(pid >= -INT_MAX - 1);
 	ASSERT(pid <= INT_MAX);
@@ -1456,11 +1448,11 @@ static long sys_wait4(long pid, void *restrict wstatus, long options,
 		ASSUME_ALIGNED_DEREF(&rusage, sizeof(long));
 	}
 
-	rax =
-	    syscall4((unsigned long)pid, (unsigned long)wstatus,
-		     (unsigned long)options, (unsigned long)rusage, SYS_WAIT4);
-	if (UNLIKELY(rax < 0 && rax > -0x1000)) {
-		return rax;
+	syscall4((unsigned long)pid, (unsigned long)wstatus,
+		 (unsigned long)options, (unsigned long)rusage, SYS_WAIT4,
+		 &rax);
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
@@ -1468,13 +1460,13 @@ static long sys_wait4(long pid, void *restrict wstatus, long options,
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
-	ASSERT(rax >= -0x1000);
-	ASSERT(rax <= INT_MAX);
+	ASSERT(rax.l >= -0x1000);
+	ASSERT(rax.l <= INT_MAX);
 
 	if (result != NULL) {
-		*result = (int)rax;
+		*result = (int)rax.l;
 	}
-	return rax;
+	return rax.l;
 }
 
 static long sys_wait4_verbose(long pid, void *restrict wstatus, long options,

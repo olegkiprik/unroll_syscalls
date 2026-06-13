@@ -1,2 +1,2 @@
-clang -std=c17 -Dasm=__asm__ -DNDEBUG -Dstatic="" -Wall -Wextra -Wpedantic -Wno-language-extension-token -Wno-unused-function -static -fno-builtin -nostdlib -ffast-math -Os asm_x64.s main.c
+clang $1 $2 $3 -std=c17 -DNDEBUG -fstrict-aliasing -Wall -Wextra -Wpedantic -Wno-unused-function -Werror=vla -Wstrict-aliasing -static -fno-builtin -nostdlib -ffast-math -fno-pic -Os asm_x64.s main.c
 
