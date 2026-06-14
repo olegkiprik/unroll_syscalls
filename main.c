@@ -30,14 +30,14 @@
 #if defined(STDIO_DESCRIPTOR_NO_HACKING)
 #endif
 
-#define LONG_MAX 0x7fffFFFFffffFFFF
-#define ULONG_MAX 0xffffFFFFffffFFFF
-#define INT_MAX 0x7fFFffFF
-#define UINT_MAX 0xffFFffFF
-#define SHRT_MAX 0x7fff
-#define USHRT_MAX 0xffff
-#define SCHAR_MAX 0x7f
-#define UCHAR_MAX 0xff
+#define LONG_MAX 0x7fffFFFFffffFFFFl
+#define ULONG_MAX 0xffffFFFFffffFFFFul
+#define INT_MAX 0x7fFFffFFl
+#define UINT_MAX 0xffFFffFFl
+#define SHRT_MAX 0x7fffL
+#define USHRT_MAX 0xffffL
+#define SCHAR_MAX 0x7fL
+#define UCHAR_MAX 0xffL
 
 /* assumed */
 #define FLT_MAX 3.4e+38f
@@ -370,7 +370,7 @@ static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 #define SIG_DFL ((void (*)(int))0x0)
 #define SIG_IGN ((void (*)(int))0x1)
 
-#define SA_RESETHAND (0x7fffFFFF + 1)
+#define SA_RESETHAND (0x7fffFFFFl + 1)
 #define SA_SIGINFO 0x4
 
 #define WNOHANG 0x1
