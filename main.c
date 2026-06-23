@@ -1,4 +1,4 @@
-/* x86-64 Linux */
+/* x86-64 or Aarch64 Linux */
 
 /* compile with -fno-builtin to prevent surprises */
 
@@ -20,6 +20,12 @@
 /* sys_calls: check < 0 for errors */
 
 #define asm __asm__
+
+#if defined(EFINE_X86_64)
+#endif
+
+#if defined(EFINE_AARCH64)
+#endif
 
 #if defined(KERNEL_MITIGATION_ERRNO)
 #if KERNEL_MITIGATION_ERRNO == 0
@@ -124,7 +130,10 @@ typedef union unn_syscall_result_ {
 } unn_syscall_result;
 
 /* borrowed from musl.
-   https://github.com/kraj/musl/blob/kraj/master/arch/x86_64/syscall_arch.h */
+   https://github.com/kraj/musl/blob/kraj/master/arch/ */
+
+#if defined(EFINE_X86_64)
+
 static void syscall0(unsigned long n, unn_syscall_result *res)
 {
 	asm volatile("syscall" : "=a"(*res) : "a"(n) : "rcx", "r11", "memory");
@@ -303,6 +312,194 @@ static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 #define SYS_CHROOT 0xa1
 #define SYS_CHDIR 0x50
 #define SYS_UMASK 0x5f
+#define SYS_FUTEX 0xca
+
+#elif defined(EFINE_AARCH64)
+
+static void syscall0(unsigned long n, unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0");
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0" : "=r"(x0) : "r"(x8) : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall1(unsigned long a1, unsigned long n, unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0" : "=r"(x0) : "r"(x8), "0"(x0) : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall2(unsigned long a1, unsigned long a2, unsigned long n,
+		     unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x1 asm("x1") = a2;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0"
+		     : "=r"(x0)
+		     : "r"(x8), "0"(x0), "r"(x1)
+		     : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall3(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long n, unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x1 asm("x1") = a2;
+	register unsigned long x2 asm("x2") = a3;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0"
+		     : "=r"(x0)
+		     : "r"(x8), "0"(x0), "r"(x1), "r"(x2)
+		     : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall4(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long n, unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x1 asm("x1") = a2;
+	register unsigned long x2 asm("x2") = a3;
+	register unsigned long x3 asm("x3") = a4;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0"
+		     : "=r"(x0)
+		     : "r"(x8), "0"(x0), "r"(x1), "r"(x2), "r"(x3)
+		     : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall5(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long a5, unsigned long n,
+		     unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x1 asm("x1") = a2;
+	register unsigned long x2 asm("x2") = a3;
+	register unsigned long x3 asm("x3") = a4;
+	register unsigned long x4 asm("x4") = a5;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0"
+		     : "=r"(x0)
+		     : "r"(x8), "0"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4)
+		     : "cc", "memory");
+	res->ul = x0;
+}
+
+static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long a5, unsigned long a6,
+		     unsigned long n, unn_syscall_result *res)
+{
+	register unsigned long x0 asm("x0") = a1;
+	register unsigned long x1 asm("x1") = a2;
+	register unsigned long x2 asm("x2") = a3;
+	register unsigned long x3 asm("x3") = a4;
+	register unsigned long x4 asm("x4") = a5;
+	register unsigned long x5 asm("x5") = a6;
+	register unsigned long x8 asm("x8") = n;
+	asm volatile("svc 0"
+		     : "=r"(x0)
+		     : "r"(x8), "0"(x0), "r"(x1), "r"(x2), "r"(x3), "r"(x4),
+		       "r"(x5)
+		     : "cc", "memory");
+	res->ul = x0;
+}
+
+/* io */
+#define SYS_WRITE 0x40
+#define SYS_READ 0x3f
+#define SYS_OPENAT 0x38
+#define SYS_CLOSE 0x39
+#define SYS_LSEEK 0x3e
+#define SYS_SYNC 0x51
+#define SYS_MSYNC 0xe3
+#define SYS_FSYNC 0x52
+#define SYS_FDATASYNC 0x53
+
+/* mem */
+#define SYS_MMAP 0xde
+#define SYS_MUNMAP 0xd7
+#define SYS_MADVISE 0xe9
+#define SYS_MLOCKALL 0xe6
+#define SYS_MUNLOCKALL 0xe7
+
+/* time */
+#define SYS_NANOSLEEP 0x65
+#define SYS_CLOCK_GETTIME 0x71
+
+/* process */
+#define SYS_EXIT 0x5d
+#define SYS_GETPID 0xac
+#define SYS_CLONE3 0x1b3
+#define SYS_WAIT4 0x104
+
+/* signal */
+#define SYS_KILL 0x81
+#define SYS_RT_SIGACTION 0x86
+
+#else
+
+static void syscall0(unsigned long n, unn_syscall_result *res);
+
+static void syscall1(unsigned long a1, unsigned long n,
+		     unn_syscall_result *res);
+
+static void syscall2(unsigned long a1, unsigned long a2, unsigned long n,
+		     unn_syscall_result *res);
+
+static void syscall3(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long n, unn_syscall_result *res);
+
+static void syscall4(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long n,
+		     unn_syscall_result *res);
+
+static void syscall5(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long a5, unsigned long n,
+		     unn_syscall_result *res);
+
+static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
+		     unsigned long a4, unsigned long a5, unsigned long a6,
+		     unsigned long n, unn_syscall_result *res);
+
+/* io */
+#define SYS_WRITE 0
+#define SYS_READ 0
+#define SYS_OPENAT 0
+#define SYS_CLOSE 0
+#define SYS_LSEEK 0
+#define SYS_SYNC 0
+#define SYS_MSYNC 0
+#define SYS_FSYNC 0
+#define SYS_FDATASYNC 0
+
+/* mem */
+#define SYS_MMAP 0
+#define SYS_MUNMAP 0
+#define SYS_MADVISE 0
+#define SYS_MLOCKALL 0
+#define SYS_MUNLOCKALL 0
+
+/* time */
+#define SYS_NANOSLEEP 0
+#define SYS_CLOCK_GETTIME 0
+
+/* process */
+#define SYS_EXIT 0
+#define SYS_GETPID 0
+#define SYS_CLONE3 0
+#define SYS_WAIT4 0
+
+/* signal */
+#define SYS_KILL 0
+#define SYS_RT_SIGACTION 0
+
+#endif
 
 #define EOF (-1)
 
@@ -492,7 +689,7 @@ static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 
 	syscall3((unsigned long)(long)fd, (unsigned long)data, nbytes,
 		 SYS_WRITE, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l - 0x1000)) {
+	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
@@ -1115,15 +1312,6 @@ static long sys_rt_sigaction(long signum, const void *restrict act,
 	return rax.l;
 }
 
-#if 0 == 1
-struct sigaction {
-	/* sizeof(long) */ void (*sa_handler)(int);
-	/* sizeof(long)... */ /* alignas(sizeof(long)) __sigset_t sa_mask; */
-	/* 4 + 4 padding */ int sa_flags;
-	/* sizeof(long) */ void (*sa_restorer)(void);
-};
-#endif
-
 static long sys_rt_sigaction_verbose(
     long signum, void (*act_sa_handler)(int), const void *restrict act_sa_mask,
     int act_sa_flags, void (*act_sa_restorer)(void),
@@ -1527,7 +1715,7 @@ static float sinf_base(float x)
 	ASSERT(x < FLT_MAX);
 	ASSERT(x > -FLT_MAX);
 	ASSERT(x >= 0);
-	ASSERT(x <= 1);
+	ASSERT(x <= M_PI / 2);
 
 	a = x;
 	b = 1;
@@ -1636,17 +1824,6 @@ static unsigned long strlen(const char *s)
 		++s;
 	}
 	return result;
-}
-
-static void stream_store_i32(int *dst, int src)
-{
-	__builtin_ia32_movnti(dst, src);
-}
-
-static void stream_store_i64(void *dst, long src)
-{
-	ASSUME_ALIGNED_DEREF(&dst, sizeof(long));
-	__builtin_ia32_movnti64(dst, src);
 }
 
 #define STR_ENTER_CHARACTERS "Enter 3 characters:"
