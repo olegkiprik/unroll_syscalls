@@ -45,8 +45,15 @@
 #define SCHAR_MAX 0x7fL
 #define UCHAR_MAX 0xffL
 
-/* assumed */
-#define FLT_MAX 3.4e+38f
+#define FLT_MIN __FLT_MIN__
+#define INT_PRECISE_FLT_MAX ((long)(1ul << 24))
+#define FLT_MAX (1 / FLT_MIN)
+
+#define DBL_MIN __DBL_MIN__
+#define LONG_PRECISE_DBL_MAX ((long)(1ul << 53))
+#define DBL_MAX (1 / DBL_MIN)
+
+#define DBL_TO_FLT_MAX 3.402823e+38
 
 #define M_PI 3.14159265358979323846
 
@@ -65,14 +72,15 @@
 
 #define OPTIONAL_ALIGNAS(x) _Alignas((x))
 
-#define LIKELY(x)                                                              \
-	(0x1 == __builtin_expect_with_probability((x) ? 1 : 0, 1, 0.9))
-#define UNLIKELY(x)                                                            \
-	(1 == __builtin_expect_with_probability((x) ? 1 : 0, 0, 0.9))
+#define OFTEN(x) (__builtin_expect_with_probability((x), 1, 0.9))
+#define RARELY(x) (__builtin_expect_with_probability((x), 0, 0.9))
+
+#define MORE_LIKELY(x) (__builtin_expect_with_probability((x), 1, 0.6))
+#define LESS_LIKELY(x) (__builtin_expect_with_probability((x), 0, 0.6))
 
 #define ASSERT(x)                                                              \
 	do {                                                                   \
-		if (UNLIKELY(!(x))) {                                          \
+		if (RARELY(!(x))) {                                            \
 			if (NDEBUG_FLAG) {                                     \
 				__builtin_unreachable();                       \
 			} else {                                               \
@@ -313,6 +321,14 @@ static void syscall6(unsigned long a1, unsigned long a2, unsigned long a3,
 #define SYS_CHDIR 0x50
 #define SYS_UMASK 0x5f
 #define SYS_FUTEX 0xca
+
+static void disable_denormals(void)
+{
+	unsigned int tmp;
+	asm volatile("stmxcsr %0" : "=m"(tmp)::"cc", "memory");
+	tmp |= 0x8040;
+	asm volatile("ldmxcsr %0" : : "m"(tmp) : "cc", "memory");
+}
 
 #elif defined(EFINE_AARCH64)
 
@@ -590,7 +606,7 @@ static unsigned long priv_strlen(const char *s)
 	unsigned long result;
 
 	result = 0;
-	while (LIKELY(*s != '\0')) {
+	while (MORE_LIKELY(*s != '\0')) {
 		++result;
 		++s;
 	}
@@ -631,14 +647,15 @@ static long write_no_eintr(long fd, const void *restrict data,
 
 	while (1 == 1) {
 		err = sys_write(fd, curr_data, nbytes, &res);
-		if (UNLIKELY(err < 0)) {
-			if (LIKELY(-err == EINTR)) {
+
+		if (RARELY(err < 0)) {
+			if (MORE_LIKELY(-err == EINTR)) {
 				continue;
 			} else {
 				break;
 			}
 		} else {
-			if (LIKELY((unsigned long)res == nbytes)) {
+			if (OFTEN((unsigned long)res == nbytes)) {
 				break;
 			}
 			curr_data += res;
@@ -647,7 +664,7 @@ static long write_no_eintr(long fd, const void *restrict data,
 		}
 	}
 
-	if (UNLIKELY(result != NULL)) {
+	if (LESS_LIKELY(result != NULL)) {
 		*result = nbytes_succeeded;
 	}
 	return err;
@@ -689,12 +706,12 @@ static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 
 	syscall3((unsigned long)(long)fd, (unsigned long)data, nbytes,
 		 SYS_WRITE, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax < 0 || (unsigned long)rax > nbytes)) {
+	if (RARELY(rax < 0 || (unsigned long)rax > nbytes)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -702,7 +719,7 @@ static long sys_write(long fd, const void *restrict data, unsigned long nbytes,
 	ASSERT(rax.l >= 0);
 	ASSERT((unsigned long)rax.l <= nbytes);
 
-	if (LIKELY(result != NULL)) {
+	if (MORE_LIKELY(result != NULL)) {
 		*result = rax.l;
 	}
 	return rax.l;
@@ -724,12 +741,12 @@ static long sys_read(long fd, void *restrict buf, unsigned long nbytes,
 
 	syscall3((unsigned long)(long)fd, (unsigned long)buf, nbytes, SYS_READ,
 		 &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax < 0 || (unsigned long)rax > nbytes)) {
+	if (RARELY(rax < 0 || (unsigned long)rax > nbytes)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -737,7 +754,7 @@ static long sys_read(long fd, void *restrict buf, unsigned long nbytes,
 	ASSERT(rax.l >= 0);
 	ASSERT((unsigned long)rax.l <= nbytes);
 
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = rax.l;
 	}
 	return rax.l;
@@ -761,14 +778,14 @@ static long read_no_eintr(long fd, void *restrict buf, unsigned long nbytes,
 
 	while (1 == 1) {
 		err = sys_read(fd, curr_buf, nbytes, &res);
-		if (UNLIKELY(err < 0)) {
-			if (LIKELY(-err == EINTR)) {
+		if (RARELY(err < 0)) {
+			if (MORE_LIKELY(-err == EINTR)) {
 				continue;
 			} else {
 				break;
 			}
 		} else {
-			if (LIKELY((unsigned long)res == nbytes)) {
+			if (OFTEN((unsigned long)res == nbytes)) {
 				break;
 			}
 			curr_buf += res;
@@ -777,7 +794,7 @@ static long read_no_eintr(long fd, void *restrict buf, unsigned long nbytes,
 		}
 	}
 
-	if (UNLIKELY(result != NULL)) {
+	if (MORE_LIKELY(result != NULL)) {
 		*result = nbytes_succeeded;
 	}
 	return err;
@@ -801,18 +818,18 @@ static long sys_lseek(long fd, long offset, long whence, long *result)
 
 	syscall3((unsigned long)fd, (unsigned long)offset,
 		 (unsigned long)whence, SYS_LSEEK, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax <= -0x1000)) {
+	if (RARELY(rax <= -0x1000)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
 	ASSERT(rax.l >= 0);
-	if (UNLIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = rax.l;
 	}
 	return rax.l;
@@ -829,12 +846,12 @@ static long sys_clone3(void *restrict args, unsigned long size,
 	}
 
 	syscall2((unsigned long)args, size, SYS_CLONE3, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax <= -0x1000 || rax > INT_MAX)) {
+	if (RARELY(rax <= -0x1000 || rax > INT_MAX)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -842,7 +859,7 @@ static long sys_clone3(void *restrict args, unsigned long size,
 	ASSERT(rax.l >= 0);
 	ASSERT(rax.l <= INT_MAX);
 
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = (int)rax.l;
 	}
 	return rax.l;
@@ -932,17 +949,17 @@ static long sys_openat_uint(long dirfd, const void *restrict pathname,
 
 	syscall4(dirfd_ul, (unsigned long)pathname, (unsigned long)(long)flags,
 		 (unsigned long)mode, SYS_OPENAT, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax > INT_MAX || rax <= -0x1000)) {
+	if (RARELY(rax > INT_MAX || rax <= -0x1000)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #if defined(STDIO_DESCRIPTOR_NO_HACKING)
-	if (UNLIKELY(rax == STDOUT_FILENO || rax == STDERR_FILENO ||
-		     rax == STDIN_FILENO)) {
+	if (LESS_LIKELY(rax == STDOUT_FILENO || rax == STDERR_FILENO ||
+			rax == STDIN_FILENO)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -956,7 +973,7 @@ static long sys_openat_uint(long dirfd, const void *restrict pathname,
 	ASSERT(rax.l != STDIN_FILENO);
 #endif
 
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = (int)rax.l;
 	}
 	return rax.l;
@@ -984,17 +1001,17 @@ static long sys_openat(long dirfd, const void *restrict pathname, long flags,
 
 	syscall3(dirfd_ul, (unsigned long)pathname, (unsigned long)(long)flags,
 		 SYS_OPENAT, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax > INT_MAX || rax <= -0x1000)) {
+	if (RARELY(rax > INT_MAX || rax <= -0x1000)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #if defined(STDIO_DESCRIPTOR_NO_HACKING)
-	if (UNLIKELY(rax == STDOUT_FILENO || rax == STDERR_FILENO ||
-		     rax == STDIN_FILENO)) {
+	if (LESS_LIKELY(rax == STDOUT_FILENO || rax == STDERR_FILENO ||
+			rax == STDIN_FILENO)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1008,7 +1025,7 @@ static long sys_openat(long dirfd, const void *restrict pathname, long flags,
 	ASSERT(rax.l != STDIN_FILENO);
 #endif
 
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = (int)rax.l;
 	}
 	return rax.l;
@@ -1027,12 +1044,12 @@ static long sys_close(long fd)
 #endif
 
 	syscall1((unsigned long)(long)fd, SYS_CLOSE, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1049,12 +1066,12 @@ static long sys_fsync(long fd)
 	ASSERT(fd <= INT_MAX);
 
 	syscall1((unsigned long)(long)fd, SYS_FSYNC, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1071,12 +1088,12 @@ static long sys_fdatasync(long fd)
 	ASSERT(fd <= INT_MAX);
 
 	syscall1((unsigned long)(long)fd, SYS_FDATASYNC, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1117,19 +1134,19 @@ static long sys_mmap(void *restrict addr, unsigned long length, long prot,
 
 	syscall6((unsigned long)addr, length, (unsigned long)(long)prot,
 		 (unsigned long)(long)flags, fd_ul, offset_ul, SYS_MMAP, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l < 0)) {
+	if (RARELY(rax.l < 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
 	ASSERT(rax.l >= 0);
 
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = rax.p;
 	}
 
@@ -1141,12 +1158,12 @@ static long sys_munmap(void *addr, unsigned long length)
 	unn_syscall_result rax;
 
 	syscall2((unsigned long)addr, length, SYS_MUNMAP, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (RARELY(rax != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1166,12 +1183,12 @@ static long sys_madvise(void *addr, unsigned long length, long advice)
 
 	syscall3((unsigned long)addr, length, (unsigned long)(long)advice,
 		 SYS_MADVISE, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (RARELY(rax != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1189,12 +1206,12 @@ static long sys_mlockall(long flags)
 	ASSERT(flags <= INT_MAX);
 
 	syscall1((unsigned long)(long)flags, SYS_MLOCKALL, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (RARELY(rax != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1208,12 +1225,12 @@ static long sys_munlockall(void)
 	unn_syscall_result rax;
 
 	syscall0(SYS_MUNLOCKALL, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1231,12 +1248,12 @@ static long sys_msync(void *addr, unsigned long length, long flags)
 
 	syscall3((unsigned long)addr, length, (unsigned long)(long)flags,
 		 SYS_MSYNC, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax != 0)) {
+	if (RARELY(rax != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1265,12 +1282,12 @@ static long sys_kill(long pid, long sig)
 	}
 
 	syscall2(pid_ul, (unsigned long)(long)sig, SYS_KILL, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1298,12 +1315,12 @@ static long sys_rt_sigaction(long signum, const void *restrict act,
 
 	syscall4((unsigned long)(long)signum, (unsigned long)act,
 		 (unsigned long)oldact, sigsetsize, SYS_RT_SIGACTION, &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1357,23 +1374,23 @@ static long sys_rt_sigaction_verbose(
 	}
 
 	if (oldact_buffer != NULL) {
-		if (LIKELY(oldact_sa_handler != NULL)) {
+		if (MORE_LIKELY(oldact_sa_handler != NULL)) {
 			ASSUME_ALIGNED_DEREF(&oldact_sa_handler,
 					     sizeof(void (**)(int)));
 			memcpy(oldact_sa_handler, oldact_buffer,
 			       sizeof(void (**)(int)));
 		}
-		if (LIKELY(oldact_sa_mask != NULL)) {
+		if (MORE_LIKELY(oldact_sa_mask != NULL)) {
 			ASSUME_ALIGNED_DEREF(&oldact_sa_mask, sizeof(long));
 			memcpy(oldact_sa_mask,
 			       (char *)oldact_buffer + sizeof(long),
 			       sigsetsize);
 		}
-		if (LIKELY(oldact_sa_flags != NULL)) {
+		if (MORE_LIKELY(oldact_sa_flags != NULL)) {
 			*oldact_sa_flags = *(int *)((char *)oldact_buffer +
 						    sizeof(long) + sigsetsize);
 		}
-		if (LIKELY(oldact_sa_restorer != NULL)) {
+		if (MORE_LIKELY(oldact_sa_restorer != NULL)) {
 			ASSUME_ALIGNED_DEREF(&oldact_sa_restorer,
 					     sizeof(void (**)(void)));
 			memcpy(oldact_sa_restorer,
@@ -1400,12 +1417,12 @@ static long sys_nanosleep(const void *restrict duration, void *restrict rem)
 
 	syscall2((unsigned long)duration, (unsigned long)rem, SYS_NANOSLEEP,
 		 &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1432,7 +1449,7 @@ static long sys_nanosleep_verbose(long duration_tv_sec, long duration_tv_nsec)
 
 	err = sys_nanosleep(ts, NULL);
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(-err == EINVAL)) {
+	if (RARELY(-err == EINVAL)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1464,13 +1481,13 @@ static long sys_nanosleep_verbose_rem(long duration_tv_sec,
 
 	err = sys_nanosleep(ts, rem_ts);
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(-err == EINVAL)) {
+	if (RARELY(-err == EINVAL)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 	ASSERT(-err != EINVAL);
 
-	if (UNLIKELY(err < 0 && -err != EINTR)) {
+	if (LESS_LIKELY(err < 0 && -err != EINTR)) {
 		return err;
 	}
 
@@ -1508,7 +1525,7 @@ static long nanosleep_no_eintr_with_buff(void *duration_and_buf)
 
 	while (1 == 1) {
 		err = sys_nanosleep(xp, yp);
-		if (UNLIKELY(-err == EINTR)) {
+		if (LESS_LIKELY(-err == EINTR)) {
 			tmp = xp;
 			xp = yp;
 			yp = tmp;
@@ -1519,7 +1536,7 @@ static long nanosleep_no_eintr_with_buff(void *duration_and_buf)
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(-err == EINVAL)) {
+	if (RARELY(-err == EINVAL)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1559,12 +1576,12 @@ static long sys_clock_gettime(long clockid, void *tp)
 
 	syscall2((unsigned long)clockid, (unsigned long)tp, SYS_CLOCK_GETTIME,
 		 &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l != 0)) {
+	if (RARELY(rax.l != 0)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1610,14 +1627,14 @@ static void sys_getpid(int *result)
 	syscall0(SYS_GETPID, &rax);
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax.l < 0 || rax.l > INT_MAX)) {
+	if (RARELY(rax.l < 0 || rax.l > INT_MAX)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
 
 	ASSERT(rax.l >= 0);
 	ASSERT(rax.l <= INT_MAX);
-	if (LIKELY(result != NULL)) {
+	if (OFTEN(result != NULL)) {
 		*result = (int)rax.l;
 	}
 }
@@ -1639,12 +1656,12 @@ static long sys_wait4(long pid, void *restrict wstatus, long options,
 	syscall4((unsigned long)pid, (unsigned long)wstatus,
 		 (unsigned long)options, (unsigned long)rusage, SYS_WAIT4,
 		 &rax);
-	if (UNLIKELY(rax.l < 0 && rax.l > -0x1000)) {
+	if (RARELY(rax.l < 0 && rax.l > -0x1000)) {
 		return rax.l;
 	}
 
 #if defined(KERNEL_MITIGATION_ERRNO)
-	if (UNLIKELY(rax < -0x1000 || rax > INT_MAX)) {
+	if (RARELY(rax < -0x1000 || rax > INT_MAX)) {
 		return -KERNEL_MITIGATION_ERRNO;
 	}
 #endif
@@ -1771,7 +1788,7 @@ static float sinf(float x)
 
 	sign = 1;
 
-	if (UNLIKELY(x < 0)) {
+	if (LESS_LIKELY(x < 0)) {
 		x = -x;
 		sign = -sign;
 	}
@@ -1818,7 +1835,7 @@ static unsigned long strlen(const char *s)
 	unsigned long result;
 
 	result = 0;
-	while (LIKELY(*s != '\0')) {
+	while (OFTEN(*s != '\0')) {
 		ASSERT(result != ULONG_MAX);
 		++result;
 		++s;
@@ -1849,31 +1866,31 @@ int main(int argc, char **argv)
 
 	err = write_no_eintr(STDOUT_FILENO, "\n" STR_ENTER_CHARACTERS "\n",
 			     2 + strlen(STR_ENTER_CHARACTERS), NULL);
-	if (UNLIKELY(err < 0)) {
+	if (RARELY(err < 0)) {
 		(void)write_no_eintr(STDERR_FILENO, "\nError\n", 7, NULL);
 		return EXIT_FAILURE;
 	}
 	err = read_no_eintr(STDIN_FILENO,
 			    buf + 1 + strlen(STR_HERE_ARE_CHARACTERS) + 1, 3,
 			    NULL);
-	if (UNLIKELY(err < 0)) {
+	if (RARELY(err < 0)) {
 		(void)write_no_eintr(STDERR_FILENO, "\nError\n", 7, NULL);
 		return EXIT_FAILURE;
 	}
 	err = write_no_eintr(STDOUT_FILENO, "\n" STR_WAIT "\n",
 			     2 + strlen(STR_WAIT), NULL);
-	if (UNLIKELY(err < 0)) {
+	if (RARELY(err < 0)) {
 		(void)write_no_eintr(STDERR_FILENO, "\nError\n", 7, NULL);
 		return EXIT_FAILURE;
 	}
 	err = nanosleep_no_eintr(3, 0);
-	if (UNLIKELY(err < 0)) {
+	if (RARELY(err < 0)) {
 		(void)write_no_eintr(STDERR_FILENO, "\nError\n", 7, NULL);
 		return EXIT_FAILURE;
 	}
 	err = write_no_eintr(STDOUT_FILENO, buf,
 			     3 + 1 + 2 + strlen(STR_HERE_ARE_CHARACTERS), NULL);
-	if (UNLIKELY(err < 0)) {
+	if (RARELY(err < 0)) {
 		(void)write_no_eintr(STDERR_FILENO, "\nError\n", 7, NULL);
 		return EXIT_FAILURE;
 	}
