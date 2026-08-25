@@ -1,0 +1,1 @@
+## Check 'restrict' usage!
